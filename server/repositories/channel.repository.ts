@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, sql, and } from "drizzle-orm";
 import { 
   channels, 
   type Channel, 
@@ -10,6 +10,51 @@ export class ChannelRepository {
   async getAll(): Promise<Channel[]> {
     return await db.select().from(channels).orderBy(desc(channels.createdAt));
   }
+
+  async getAllByUserId(userId: string): Promise<Channel[]> {
+    return await db
+      .select()
+      .from(channels)
+      .where(eq(channels.createdBy, userId))
+      .orderBy(desc(channels.createdAt));
+  }
+
+  async getByUser(
+  userId: string,
+  page: number = 1,
+  limit: number = 10
+) {
+  const offset = (page - 1) * limit;
+
+  // Fetch paginated channels
+  const channelsList = await db
+    .select()
+    .from(channels)
+    .where(eq(channels.createdBy, userId))
+    .orderBy(desc(channels.createdAt))
+    .limit(limit)
+    .offset(offset);
+
+  // Fetch total count
+  const totalResult = await db
+    .select({ total: sql<number>`COUNT(*)` })
+    .from(channels)
+    .where(eq(channels.createdBy, userId));
+
+  const total = totalResult[0]?.total ?? 0;
+
+  return {
+    data: channelsList,
+    pagination: {
+      total: Number(total),
+      page,
+      limit,
+      totalPages: Math.ceil(Number(total) / limit),
+    },
+  };
+}
+
+
 
   async getById(id: string): Promise<Channel | undefined> {
     const [channel] = await db.select().from(channels).where(eq(channels.id, id));
@@ -54,4 +99,29 @@ export class ChannelRepository {
       .orderBy(desc(channels.createdAt));
     return channel || undefined;
   }
+
+  async getActiveByUserId(userId: string): Promise<Channel | undefined> {
+    const [channel] = await db
+      .select()
+      .from(channels)
+      .where(
+        and(
+          eq(channels.isActive, true),
+          eq(channels.createdBy, userId)
+        )
+      )
+      .orderBy(desc(channels.createdAt));
+  
+    return channel || undefined;
+  }
+
+  async getTotalChannelsByUser(createdBy: string): Promise<number> {
+  const result = await db
+    .select({ id: channels.id })
+    .from(channels)
+    .where(eq(channels.createdBy, createdBy));
+
+  return result.length;
+}
+
 }

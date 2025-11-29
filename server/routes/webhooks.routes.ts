@@ -3,6 +3,8 @@ import * as webhooksController from "../controllers/webhooks.controller";
 
 export function registerWebhookRoutes(app: Express) {
   // Get webhook configs
+  app.get("/api/webhook-configs-channel-id/:id", webhooksController.getWebhookConfigsByChannelId);
+
   app.get("/api/webhook-configs", webhooksController.getWebhookConfigs);
   
   // Create webhook config
@@ -21,5 +23,12 @@ export function registerWebhookRoutes(app: Express) {
   app.get("/api/webhook/global-url", webhooksController.getGlobalWebhookUrl);
 
   // Global webhook endpoint
-  app.all("/webhook/d420e261-9c12-4cee-9d65-253cda8ab4bc", webhooksController.handleWebhook);
-}
+  app.all("/webhook/:id", webhooksController.handleWebhook);
+
+  // ==================== PAYMENT WEBHOOKS ====================
+
+  app.post('/webhooks/razorpay', webhooksController.razorpayWebhook);
+
+  // Stripe Webhook
+  app.post('/webhooks/stripe', webhooksController.stripeWebhook);
+} 

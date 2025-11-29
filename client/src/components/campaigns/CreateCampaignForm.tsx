@@ -40,6 +40,7 @@ export function CreateCampaignForm({
   onCancel,
   children
 }: CreateCampaignFormProps) {
+  // console.log(templates)
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
@@ -51,14 +52,20 @@ export function CreateCampaignForm({
     onSubmit(campaignData);
   };
 
-  const activeTemplates = templates.filter((t: any) => t.status === "APPROVED");
+  
+  const activeTemplates = Array.isArray(templates)
+  ? templates.filter((t: any) => t.status?.toLowerCase() === "approved")
+  : [];
+
+
+
   const {user} = useAuth()
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4 mt-4">
       <div>
         <Label htmlFor="name">Campaign Name</Label>
-        <Input id="name" name="name" required placeholder="Black Friday Sale" />
+        <Input id="name" name="name" required placeholder="Name" />
       </div>
 
       <div>
@@ -77,11 +84,17 @@ export function CreateCampaignForm({
             <SelectValue placeholder="Select a template" />
           </SelectTrigger>
           <SelectContent>
-            {activeTemplates.map((template: any) => (
+            {/* {templates.map((template: any) => (
               <SelectItem key={template.id} value={template.id}>
                 {template.name} ({template.language})
               </SelectItem>
-            ))}
+            ))} */}
+
+            {activeTemplates.map((template: any) => (
+      <SelectItem key={template.id} value={template.id}>
+        {template.name} ({template.language})
+      </SelectItem>
+    ))}
           </SelectContent>
         </Select>
       </div>

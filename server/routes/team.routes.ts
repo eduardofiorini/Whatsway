@@ -7,7 +7,7 @@ import {
   DEFAULT_PERMISSIONS,
   Permission,
 } from "@shared/schema";
-import { eq, desc, and, sql, ne } from "drizzle-orm";
+import { eq, desc, and, sql, ne, or, ilike } from "drizzle-orm";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { validateRequest } from "../middlewares/validateRequest.middleware";
@@ -50,7 +50,7 @@ const createUserSchema = z.object({
   password: z.string().min(6, "Password must be at least 6 characters"),
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().optional(),
-  role: z.enum(["admin", "manager", "agent"]),
+  role: z.enum(["team"]),
   permissions: z
     .union([z.array(z.string()), z.record(z.boolean())])
     .optional()
@@ -84,10 +84,174 @@ const updateStatusSchema = z.object({
   status: z.enum(["active", "inactive"]),
 });
 
-// Get all team members (users)
-router.get("/members",requireAuth,
-requirePermission(PERMISSIONS.TEAM_VIEW), async (req, res) => {
+// Get all team members (created by current user)
+// router.get(
+//   "/members",
+//   requireAuth,
+//   requirePermission(PERMISSIONS.TEAM_VIEW),
+//   async (req, res) => {
+//     try {
+//       const userId = req.user?.id;
+//       if (!userId) {
+//         return res.status(401).json({ error: "Unauthorized: User not found" });
+//       }
+
+//       const page = parseInt(req.query.page as string) || 1;
+//       const limit = parseInt(req.query.limit as string) || 10;
+//       const offset = (page - 1) * limit;
+
+//       const members = await db
+//         .select({
+//           id: users.id,
+//           username: users.username,
+//           email: users.email,
+//           firstName: users.firstName,
+//           lastName: users.lastName,
+//           role: users.role,
+//           status: users.status,
+//           permissions: users.permissions,
+//           avatar: users.avatar,
+//           lastLogin: users.lastLogin,
+//           createdAt: users.createdAt,
+//           updatedAt: users.updatedAt,
+//           createdBy: users.createdBy,
+//         })
+//         .from(users)
+//         .where(eq(users.createdBy, userId))
+//         .orderBy(desc(users.createdAt))
+//         .limit(limit)
+//         .offset(offset);
+
+//       const countResult = await db
+//         .select({ count: sql<number>`COUNT(*)` })
+//         .from(users)
+//         .where(eq(users.createdBy, userId));
+
+//       const total = countResult[0]?.count ?? 0;
+
+//       res.json({
+//         data: members,
+//         total,
+//         page,
+//         limit,
+//         totalPages: Math.ceil(total / limit),
+//       });
+//     } catch (error) {
+//       console.error("Error fetching team members:", error);
+//       res.status(500).json({ error: "Failed to fetch team members" });
+//     }
+//   }
+// );
+
+
+router.get(
+  "/members",
+  requireAuth,
+  requirePermission(PERMISSIONS.TEAM_VIEW),
+  async (req, res) => {
+    try {
+      const loggedInUser = req.user;
+
+      if (!loggedInUser?.id) {
+        return res.status(401).json({ error: "Unauthorized: User not found" });
+      }
+
+      const ownerUserId =
+        loggedInUser.role === "team"
+          ? loggedInUser.createdBy
+          : loggedInUser.id;
+
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 10;
+      const offset = (page - 1) * limit;
+
+      const search = (req.query.search as string) || "";
+
+      // OPTIONAL search condition
+      const searchFilter = search
+        ? or(
+            ilike(users.firstName, `%${search}%`),
+            ilike(users.lastName, `%${search}%`),
+            ilike(users.username, `%${search}%`),
+            ilike(users.email, `%${search}%`)
+          )
+        : undefined;
+
+      // MAIN QUERY
+      const members = await db
+        .select({
+          id: users.id,
+          username: users.username,
+          email: users.email,
+          firstName: users.firstName,
+          lastName: users.lastName,
+          role: users.role,
+          status: users.status,
+          permissions: users.permissions,
+          avatar: users.avatar,
+          lastLogin: users.lastLogin,
+          createdAt: users.createdAt,
+          updatedAt: users.updatedAt,
+          createdBy: users.createdBy,
+        })
+        .from(users)
+        .where(
+          and(eq(users.createdBy, ownerUserId), searchFilter ?? undefined)
+        )
+        .orderBy(desc(users.createdAt))
+        .limit(limit)
+        .offset(offset);
+
+      // COUNT
+      const countResult = await db
+        .select({ count: sql<number>`COUNT(*)` })
+        .from(users)
+        .where(
+          and(eq(users.createdBy, ownerUserId), searchFilter ?? undefined)
+        );
+
+      const total = countResult[0]?.count ?? 0;
+
+      res.json({
+        data: members,
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      });
+    } catch (error) {
+      console.error("Error fetching team members:", error);
+      res.status(500).json({ error: "Failed to fetch team members" });
+    }
+  }
+);
+
+
+
+
+
+router.post("/membersByUserId", async (req, res) => {
   try {
+    const { userId, page = 1, limit = 10 } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized: User not found" });
+    }
+
+    // Calculate offset for pagination
+    const offset = (page - 1) * limit;
+
+    // Fetch total count first
+    const totalCountResult = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(users)
+      .where(eq(users.createdBy, userId))
+      .execute();
+
+    const total = totalCountResult[0]?.count || 0;
+    const totalPages = Math.ceil(total / limit);
+
+    // Fetch paginated members
     const members = await db
       .select({
         id: users.id,
@@ -102,16 +266,30 @@ requirePermission(PERMISSIONS.TEAM_VIEW), async (req, res) => {
         lastLogin: users.lastLogin,
         createdAt: users.createdAt,
         updatedAt: users.updatedAt,
+        createdBy: users.createdBy,
       })
       .from(users)
-      .orderBy(desc(users.createdAt));
+      .where(eq(users.createdBy, userId))
+      .orderBy(desc(users.createdAt))
+      .limit(limit)
+      .offset(offset);
 
-    res.json(members);
+    res.json({
+      data: members,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
+    });
   } catch (error) {
     console.error("Error fetching team members:", error);
     res.status(500).json({ error: "Failed to fetch team members" });
   }
 });
+
+
 
 // Get single team member
 router.get("/members/:id",requireAuth,
@@ -168,10 +346,11 @@ requirePermission(PERMISSIONS.TEAM_CREATE), validateRequest(createUserSchema), a
       email,
       firstName,
       lastName,
-      role,
+      role:"team",
       permissions,
       avatar: avatar || null,
       status: "active",
+      created_by: (req.user as { id: string }).id
     })
 
     const [newUser] = await db
@@ -182,10 +361,12 @@ requirePermission(PERMISSIONS.TEAM_CREATE), validateRequest(createUserSchema), a
         email,
         firstName,
         lastName,
-        role,
+        role:'team',
         permissions, // already an array from schema
         avatar: avatar || null,
         status: "active",
+        isEmailVerified: true,
+        createdBy: (req.user as { id: string }).id
       })
       .returning();
 
@@ -405,10 +586,19 @@ router.delete("/members/:id",requireAuth, async (req, res) => {
   }
 });
 
-// Get team activity logs
+
+// get activity logs
 router.get("/activity-logs", async (req, res) => {
   try {
-    const logs = await db
+    const loggedInUserId = req?.session?.user?.id;
+    const role = req?.session?.user?.role;   // <-- Make sure role is stored in session or JWT
+
+    if (!loggedInUserId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    // Base query
+    let query = db
       .select({
         id: userActivityLogs.id,
         userId: userActivityLogs.userId,
@@ -427,12 +617,59 @@ router.get("/activity-logs", async (req, res) => {
       .orderBy(desc(userActivityLogs.createdAt))
       .limit(100);
 
+    // Apply restriction only if not superadmin
+    if (role !== "superadmin") {
+      query = query.where(eq(users.createdBy, loggedInUserId));
+    }
+
+    const logs = await query;
+
     res.json(logs);
   } catch (error) {
     console.error("Error fetching activity logs:", error);
     res.status(500).json({ error: "Failed to fetch activity logs" });
   }
 });
+
+
+
+// router.get("/activity-logs", async (req, res) => {
+//   try {
+//     const loggedInUserId = req?.session?.user?.id;
+
+//     if (!loggedInUserId) {
+//       return res.status(401).json({ error: "Unauthorized" });
+//     }
+
+//     // Fetch ALL activity logs (No filter)
+//     const logs = await db
+//       .select({
+//         id: userActivityLogs.id,
+//         userId: userActivityLogs.userId,
+//         userName: users.username,
+//         userEmail: users.email,
+//         action: userActivityLogs.action,
+//         entityType: userActivityLogs.entityType,
+//         entityId: userActivityLogs.entityId,
+//         details: userActivityLogs.details,
+//         ipAddress: userActivityLogs.ipAddress,
+//         userAgent: userActivityLogs.userAgent,
+//         createdAt: userActivityLogs.createdAt,
+//       })
+//       .from(userActivityLogs)
+//       .leftJoin(users, eq(userActivityLogs.userId, users.id))
+//       .orderBy(desc(userActivityLogs.createdAt))
+//       .limit(100);
+
+//     res.json(logs);
+
+//   } catch (error) {
+//     console.error("Error fetching activity logs:", error);
+//     res.status(500).json({ error: "Failed to fetch activity logs" });
+//   }
+// });
+
+
 
 // Update member permissions
 router.patch("/members/:id/permissions",requireAuth,

@@ -9,9 +9,10 @@ interface User {
   email: string;
   firstName: string;
   lastName: string;
-  role: "admin" | "user";
+  role: "admin" | "user" | "superadmin";
   status: "active" | "inactive";
   permissions: string[];
+  isEmailVerified?: boolean;
 }
 
 async function seed() {
@@ -43,6 +44,7 @@ async function seed() {
           role,
           status,
           permissions,
+          isEmailVerified: true
         })
         .returning();
 
@@ -50,7 +52,110 @@ async function seed() {
       return newUser;
     }
 
-    // Default permissions
+
+    // Default superadmin permission 
+
+
+    const DefaultsuperAdminPermissions = [
+  // Core Features – Dashboard, Campaigns, Templates, Contacts, ChatHub
+  'dashboard:view',
+
+  'campaigns:view',
+  'campaigns:create',
+  'campaigns:edit',
+  'campaigns:delete',
+  'campaigns:export',
+
+  'templates:view',
+  'templates:create',
+  'templates:edit',
+  'templates:delete',
+  'templates:export',
+
+  'contacts:view',
+  'contacts:create',
+  'contacts:edit',
+  'contacts:delete',
+  'contacts:export',
+
+  'chathub:view',
+  'chathub:send',
+  'chathub:assign',
+  'chathub:delete',
+
+  // Automation & AI – Bot Flow Builder, Workflows, AI Assistant, Auto Responses
+  'botflow:view',
+  'botflow:create',
+  'botflow:edit',
+  'botflow:delete',
+
+  'workflows:view',
+  'workflows:create',
+  'workflows:edit',
+  'workflows:delete',
+
+  'aiassistant:use',
+  'aiassistant:configure',
+
+  'autoresponses:view',
+  'autoresponses:create',
+  'autoresponses:edit',
+  'autoresponses:delete',
+
+  // WhatsApp Management – WABA Connection, Multi-Number, Webhooks, QR Codes
+  'waba:view',
+  'waba:connect',
+  'waba:disconnect',
+  'multi_number:view',
+  'multi_number:add',
+  'multi_number:edit',
+  'multi_number:delete',
+  'webhooks:view',
+  'webhooks:create',
+  'webhooks:edit',
+  'webhooks:delete',
+  'qrcodes:view',
+  'qrcodes:generate',
+  'qrcodes:delete',
+
+  // CRM & Leads – CRM Systems, Lead Management, Bulk Import, Segmentation
+  'crm:view',
+  'leads:view',
+  'leads:create',
+  'leads:edit',
+  'leads:delete',
+  'bulk_import:leads',
+  'segmentation:view',
+  'segmentation:create',
+  'segmentation:edit',
+  'segmentation:delete',
+
+  // Analytics & Reports – Analytics, Message Logs, Health Monitor, Reports
+  'analytics:view',
+  'message_logs:view',
+  'health_monitor:view',
+  'reports:view',
+  'reports:export',
+
+  // Team & Support – Team Members, Support Tickets, Settings, Notifications
+  'team:view',
+  'team:create',
+  'team:edit',
+  'team:delete',
+  'support_tickets:view',
+  'support_tickets:create',
+  'support_tickets:edit',
+  'support_tickets:close',
+  'notifications:view',
+  'notifications:send',
+
+  // Settings (global)
+  'settings:view',
+  'settings:edit'
+];
+
+
+    // Default permissions 
     const defaultPermissions = [
       // Contacts
       'contacts:view',
@@ -70,6 +175,7 @@ async function seed() {
       'templates:create',
       'templates:edit',
       'templates:delete',
+      'templates:sync',
 
       // Analytics
       'analytics:view',
@@ -95,37 +201,59 @@ async function seed() {
       'automations:delete',
     ];
 
-    // Create Admin
-    const adminUser = await createUserIfNotExists({
-      username: "whatsway",
+
+
+    // Create Super Admin
+    const SuperAdmin = await createUserIfNotExists({
+      username: "superadmin",
+      password: "Superadmin@123",
+      email: "superadmin@whatsway.com",
+      firstName: "Super",
+      lastName: "Admin",
+      role: "superadmin",
+      status: "active",
+      isEmailVerified: true,
+      permissions: DefaultsuperAdminPermissions,
+    });
+
+
+     const demoAdmin = await createUserIfNotExists({
+      username: "demoadmin",
       password: "Admin@123",
-      email: "admin@whatsway.com",
-      firstName: "Admin",
-      lastName: "User",
-      role: "admin",
+      email: "demoadmin@whatsway.com",
+      firstName: "Demo",
+      lastName: "Admin",
+      role: "superadmin",
       status: "active",
       permissions: defaultPermissions,
+      isEmailVerified: true,
     });
 
     // Create Demo User
     const demoUser = await createUserIfNotExists({
       username: "demouser",
       password: "Demo@12345",
-      email: "demo@whatsway.com",
+      email: "demouser@whatsway.com",
       firstName: "Demo",
       lastName: "User",
       role: "user",
       status: "active",
+      isEmailVerified: true,
       permissions: ['contacts:view', 'campaigns:view', 'templates:view', 'analytics:view', 'inbox:view'],
     });
 
     console.log("\n=== Default Users Created ===");
-    console.log("Admin:");
-    console.log("  Username: whatsway");
+    console.log("Demo Admin:");
+    console.log("  Username: demoadmin");
     console.log("  Password: Admin@123");
-    console.log("Demo:");
+    
+    console.log("Demo User:");
     console.log("  Username: demouser");
     console.log("  Password: Demo@12345");
+
+    console.log("superadmin:");
+    console.log("Username: superadmin");
+    console.log("Password: Superadmin@123")
     console.log("\n⚠️  Please change passwords after first login!");
 
   } catch (error) {

@@ -16,19 +16,39 @@ import { registerAutomationRoutes } from "./automation.routes";
 import { registerWhatsAppRoutes } from "./whatsapp.routes";
 import { registerWebhookRoutes } from "./webhooks.routes";
 import { registerMessageRoutes } from "./messages.routes";
+import { registerPaymentsRoutes } from "./payment.routes";
 import { registerMessageLogsRoutes } from "./messages.logs.routes";
+import { registerPlansRoutes } from "./plans.routes";
+import {userRoutes} from "./user.route"
 import teamRoutes from "./team.routes";
 import authRoutes from "./auth.routes";
+import { registerSMTPRoutes } from "./smtp.route";
 
 // Import error handler middleware
 import { errorHandler } from "../middlewares/error.middleware";
 import { registerPanelConfigRoutes } from "./panel.config.routes";
+import { registerStorageSettingsRoutes } from "./storage.settings.route";
+import { registerAISettingsRoutes } from "./ai.settings.routes";
+import { registerWidgetRoutes } from "./chatbot.routes";
+import { registerTicketsRoutes } from "./support.tickets.routes";
+import { registerNotificationsRoutes } from "./notifications.routes";
+import { registerFirebaseRoutes } from "./firebase.routes";
+import { registerGroupRoutes } from "./group.routes";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth routes (no authentication required)
   app.use("/api/auth", authRoutes);
-  
+
   // Register all route modules
+  registerWidgetRoutes(app);
+  registerGroupRoutes(app);
+  registerPlansRoutes(app);
+  registerNotificationsRoutes(app);
+  registerFirebaseRoutes(app);
+  userRoutes(app);
+  registerSMTPRoutes(app);
+  registerStorageSettingsRoutes(app);
+  registerAISettingsRoutes(app);
   registerChannelRoutes(app);
   registerDashboardRoutes(app);
   registerAnalyticsRoutes(app); // Legacy - kept for compatibility
@@ -44,6 +64,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerMessageRoutes(app);
   registerMessageLogsRoutes(app);
   registerPanelConfigRoutes(app)
+  registerPaymentsRoutes(app);
+  registerTicketsRoutes(app);
   
   // Team management routes
   app.use("/api/team", teamRoutes);

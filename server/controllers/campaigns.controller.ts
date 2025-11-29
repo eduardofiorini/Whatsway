@@ -32,9 +32,11 @@ export const campaignsController = {
   // Get all campaigns
   getCampaigns: asyncHandler(async (req, res) => {
     const channelId = req.headers["x-channel-id"] as string;
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || 10);
     const campaigns = channelId
-      ? await storage.getCampaignsByChannel(channelId)
-      : await storage.getCampaigns();
+      ? await storage.getCampaignsByChannel(channelId, page, limit)
+      : await storage.getCampaigns(page, limit);
     res.json(campaigns);
   }),
 
@@ -47,9 +49,32 @@ export const campaignsController = {
     res.json(campaign);
   }),
 
+
+ getCampaignByUserID: asyncHandler(async (req, res) => {
+  const { userId } = req.body;
+
+  const page = Number(req.body.page) || 1;
+  const limit = Number(req.body.limit) || 10;
+
+  const campaign = await storage.getCampaignByUserId(userId, page, limit);
+
+  res.json(campaign);
+}),
+
+
+
   // Create new campaign
   createCampaign: asyncHandler(async (req, res) => {
     const data = createCampaignSchema.parse(req.body);
+
+    // Validate user
+  if (!req.user?.id) {
+    return res.status(401).json({ status: "error", message: "User not authenticated" });
+  }
+
+  const createdBy = req.user.id;
+  console.log("req.user:", req.user);
+
 
     // Generate API key for API campaigns
     let apiKey = undefined;
@@ -88,7 +113,8 @@ export const campaignsController = {
 
     // Calculate recipient count
     const recipientCount = contactIds.length;
-
+   
+     
     const campaign = await storage.createCampaign({
       ...data,
       apiKey,
@@ -96,6 +122,7 @@ export const campaignsController = {
       recipientCount,
       contactGroups: contactIds,
       scheduledAt: data.scheduledAt ? new Date(data.scheduledAt) : null,
+      createdBy
     });
 
     // If status is active and not scheduled, start campaign immediately

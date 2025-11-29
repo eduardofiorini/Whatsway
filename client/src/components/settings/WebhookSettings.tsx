@@ -9,7 +9,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Webhook,
@@ -29,22 +28,45 @@ import { Loading } from "@/components/ui/loading";
 import { WebhookDialog } from "./WebhookDialog";
 import { WebhookFlowDiagram } from "@/components/webhook-flow-diagram";
 import { useAuth } from "@/contexts/auth-context";
+import { useTranslation } from "@/lib/i18n";
 
 export function WebhookSettings() {
+  const { t } = useTranslation();
   const [showWebhookDialog, setShowWebhookDialog] = useState(false);
   const [editingWebhook, setEditingWebhook] = useState<WebhookConfig | null>(
     null
   );
   const { toast } = useToast();
   const { user } = useAuth();
+
+  const { data: activeChannel } = useQuery({
+    queryKey: ["/api/channels/active"],
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/channels/active");
+      if (!response.ok) return null;
+      return await response.json();
+    },
+  });
+
   // Fetch webhook configs
   const {
     data: webhookConfigs = [],
     isLoading: webhooksLoading,
     refetch: refetchWebhookConfigs,
-  } = useQuery<WebhookConfig[]>({
-    queryKey: ["/api/webhook-configs"],
+  } = useQuery({
+    queryKey: ["webhook-configs"],
+    queryFn: async () => {
+      const res = await fetch("/api/webhook-configs" + (activeChannel ? `-channel-id/${activeChannel.id}` : ""));
+      const json = await res.json();
+
+      console.log("Fetched JSON:", json);
+
+      // If your API returns { success, data }
+      return json.data || json; // return array ONLY
+    },
   });
+
+  // console.log("Webhook Configs:", webhookConfigs , webhooksLoading);
 
   // Delete webhook mutation
   const deleteWebhookMutation = useMutation({
@@ -54,13 +76,13 @@ export function WebhookSettings() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/webhook-configs"] });
       toast({
-        title: "Webhook deleted",
-        description: "The webhook configuration has been removed.",
+        title: t("settings.webhook_setting.webhookDeleted"),
+        description: t("settings.webhook_setting.webhookDeletedDesc"),
       });
     },
     onError: (error) => {
       toast({
-        title: "Error",
+        title: t("settings.webhook_setting.error"),
         description: error.message,
         variant: "destructive",
       });
@@ -74,13 +96,13 @@ export function WebhookSettings() {
     },
     onSuccess: () => {
       toast({
-        title: "Test webhook sent",
-        description: "Check your webhook endpoint for the test message.",
+        title: t("settings.webhook_setting.testSent"),
+        description: t("settings.webhook_setting.testSentDesc"),
       });
     },
     onError: (error) => {
       toast({
-        title: "Test failed",
+        title: t("settings.webhook_setting.testFailed"),
         description: error.message,
         variant: "destructive",
       });
@@ -90,8 +112,8 @@ export function WebhookSettings() {
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     toast({
-      title: "Copied!",
-      description: "Webhook URL copied to clipboard",
+      title: t("settings.webhook_setting.copied"),
+      description: t("settings.webhook_setting.copiedDesc"),
     });
   };
 
@@ -101,9 +123,7 @@ export function WebhookSettings() {
   };
 
   const handleDeleteWebhook = (webhookId: string) => {
-    if (
-      confirm("Are you sure you want to delete this webhook configuration?")
-    ) {
+    if (confirm(t("settings.webhook_setting.deleteConfirm"))) {
       deleteWebhookMutation.mutate(webhookId);
     }
   };
@@ -112,7 +132,7 @@ export function WebhookSettings() {
     if (!webhook.lastPingAt)
       return {
         icon: <AlertCircle className="w-4 h-4" />,
-        text: "No events received",
+        text: t("settings.webhook_setting.status.noEvents"),
       };
 
     const lastPingDate = new Date(webhook.lastPingAt);
@@ -123,63 +143,76 @@ export function WebhookSettings() {
     if (hoursSinceLastPing < 24) {
       return {
         icon: <CheckCircle className="w-4 h-4 text-green-500" />,
-        text: "Active",
+        text: t("settings.webhook_setting.status.active"),
       };
     } else {
       return {
         icon: <AlertCircle className="w-4 h-4 text-yellow-500" />,
-        text: "Inactive",
+        text: t("settings.webhook_setting.status.inactive"),
       };
     }
   };
 
   return (
     <>
-      <div className="space-y-6">
+      <div className="space-y-6 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+              <CardTitle className="flex items-center mb-2 sm:mb-0 text-lg sm:text-xl">
                 <Webhook className="w-5 h-5 mr-2" />
-                Webhook Configuration
+                {t("settings.webhook_setting.title")}
               </CardTitle>
-              <div className="flex items-center space-x-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => refetchWebhookConfigs()}
-                  disabled={user?.username === "demouser"}
+                  onClick={() => {
+                    console.log("Manual Refetch Clicked");
+                    refetchWebhookConfigs({ stale: true });
+                  }}
+                  // disabled={user?.username === "demouser"}
+                  className="flex items-center text-xs h-7 rounded-sm px-2 sm:h-9 sm:rounded-md sm:px-3"
                 >
                   <RefreshCw className="w-4 h-4 mr-1" />
-                  Refresh
+                  {t("settings.webhook_setting.refresh")}
                 </Button>
                 <Button
                   onClick={() => {
                     setEditingWebhook(null);
                     setShowWebhookDialog(true);
                   }}
-                  // disabled={user?.username === "demouser"}
+                  className="flex items-center text-xs h-7 rounded-sm px-2 sm:h-9 sm:rounded-md sm:px-3"
                 >
                   <Plus className="w-4 h-4 mr-2" />
-                  Configure Webhook
+                  {t("settings.webhook_setting.configureWebhook")}
                 </Button>
               </div>
             </div>
-            <CardDescription>
-              Configure webhooks to receive real-time WhatsApp events
+            <CardDescription className="text-sm sm:text-base">
+              {t("settings.webhook_setting.description")}
             </CardDescription>
           </CardHeader>
+
           <CardContent>
             {webhooksLoading ? (
               <Loading />
             ) : webhookConfigs.length === 0 ? (
               <div className="text-center py-12">
                 <Webhook className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-                <p className="text-gray-500 mb-4">No webhooks configured yet</p>
-                <Button onClick={() => setShowWebhookDialog(true)}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Configure Your First Webhook
-                </Button>
+                <p className="text-gray-500 mb-4 text-sm sm:text-base">
+                  {t("settings.webhook_setting.noWebhooks")}
+                </p>
+                <div className="w-full text-center flex justify-center">
+                  <Button
+                    size="sm"
+                    onClick={() => setShowWebhookDialog(true)}
+                    className="flex items-center text-xs h-7 rounded-sm px-2 sm:h-9 sm:rounded-md sm:px-3"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    {t("settings.webhook_setting.configureFirst")}
+                  </Button>
+                </div>
               </div>
             ) : (
               <div className="space-y-4">
@@ -188,89 +221,106 @@ export function WebhookSettings() {
                   return (
                     <div
                       key={webhook.id}
-                      className="border border-gray-200 rounded-lg p-4"
+                      className="border border-gray-200 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between"
                     >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-2 mb-2">
-                            <h3 className="font-semibold">
-                              {webhook.channelId
-                                ? `Channel Webhook`
-                                : "Global Webhook"}
-                            </h3>
-                            <Badge variant="secondary" className="text-xs">
-                              {status.icon}
-                              <span className="ml-1">{status.text}</span>
-                            </Badge>
-                          </div>
-                          <div className="space-y-2">
-                            <div className="flex items-center space-x-2">
-                              <Label className="text-sm">Webhook URL:</Label>
-                              <code className="text-xs bg-gray-100 px-2 py-1 rounded">
-                                {user?.username === "demouser" ? "https://your-domain.com/webhook/xxxx-xxxx-xxxx" : webhook.webhookUrl}
-                              </code>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                disabled={user?.username === "demouser"}
-                                onClick={() =>
-                                  copyToClipboard(webhook.webhookUrl)
-                                }
-                              >
-                                <Copy className="w-3 h-3" />
-                              </Button>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <Label className="text-sm">Events:</Label>
-                              <div className="flex flex-wrap gap-1">
-                                {webhook.events.map((event) => (
-                                  <Badge
-                                    key={event}
-                                    variant="outline"
-                                    className="text-xs"
-                                  >
-                                    {event}
-                                  </Badge>
-                                ))}
-                              </div>
-                            </div>
-                            {webhook.lastPingAt && (
-                              <div className="text-sm text-gray-500">
-                                Last event:{" "}
-                                {new Date(webhook.lastPingAt).toLocaleString()}
-                              </div>
-                            )}
-                          </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-4 mb-2">
+                          <h3 className="font-semibold truncate">
+                            {webhook.channelId
+                              ? t("settings.webhook_setting.channelWebhook")
+                              : t("settings.webhook_setting.globalWebhook")}
+                          </h3>
+                          <Badge
+                            variant="secondary"
+                            className="text-xs flex items-center whitespace-nowrap"
+                          >
+                            {status.icon}
+                            <span className="ml-1">{status.text}</span>
+                          </Badge>
                         </div>
-                        <div className="flex items-center space-x-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() =>
-                              testWebhookMutation.mutate(webhook.id)
-                            }
-                            disabled={user?.username === "demouser" ? true : testWebhookMutation.isPending}
-                          >
-                            Test
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleEditWebhook(webhook)}
-                            disabled={user?.username === "demouser"}
-                          >
-                            <Edit className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleDeleteWebhook(webhook.id)}
-                            disabled={user?.username === "demouser" ? true : deleteWebhookMutation.isPending}
 
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                        <div className="space-y-2">
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-2">
+                            <Label className="text-sm shrink-0">
+                              {t("settings.webhook_setting.webhookUrl")}
+                            </Label>
+                            <code className="text-xs bg-gray-100 px-2 py-1 rounded break-all flex-1">
+                              {user?.username === "demouser"
+                                ? "https://your-domain.com/webhook/xxxx-xxxx-xxxx"
+                                : webhook.webhookUrl}
+                            </code>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={user?.username === "demouser"}
+                              onClick={() =>
+                                copyToClipboard(webhook.webhookUrl)
+                              }
+                              className="mt-1 sm:mt-0 flex items-center"
+                            >
+                              <Copy className="w-3 h-3" />
+                            </Button>
+                          </div>
+
+                          <div className="flex flex-wrap items-center space-x-2">
+                            <Label className="text-sm shrink-0">
+                              {t("settings.webhook_setting.events")}
+                            </Label>
+                            <div className="flex flex-wrap gap-1">
+                              {webhook.events.map((event) => (
+                                <Badge
+                                  key={event}
+                                  variant="outline"
+                                  className="text-xs"
+                                >
+                                  {event}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+
+                          {webhook.lastPingAt && (
+                            <div className="text-sm text-gray-500 truncate">
+                              {t("settings.webhook_setting.lastEvent")}{" "}
+                              {new Date(webhook.lastPingAt).toLocaleString()}
+                            </div>
+                          )}
                         </div>
+                      </div>
+
+                      <div className="mt-4 sm:mt-0 flex flex-wrap gap-2 sm:space-x-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => testWebhookMutation.mutate(webhook.id)}
+                          disabled={
+                            user?.username === "demouser"
+                              ? true
+                              : testWebhookMutation.isPending
+                          }
+                        >
+                          {t("settings.webhook_setting.test")}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleEditWebhook(webhook)}
+                          disabled={user?.username === "demouser"}
+                        >
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleDeleteWebhook(webhook.id)}
+                          disabled={
+                            user?.username === "demouser"
+                              ? true
+                              : deleteWebhookMutation.isPending
+                          }
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
                       </div>
                     </div>
                   );
@@ -283,12 +333,12 @@ export function WebhookSettings() {
         {/* Webhook Flow Diagram */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center">
+            <CardTitle className="flex items-center text-lg sm:text-xl">
               <HelpCircle className="w-5 h-5 mr-2" />
-              How Webhooks Work
+              {t("settings.webhook_setting.howItWorks.title")}
             </CardTitle>
-            <CardDescription>
-              Understanding the webhook flow for WhatsApp Business API
+            <CardDescription className="text-sm sm:text-base">
+              {t("settings.webhook_setting.howItWorks.description")}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -299,44 +349,57 @@ export function WebhookSettings() {
         {/* Webhook Setup Instructions */}
         <Card>
           <CardHeader>
-            <CardTitle>Setup Instructions</CardTitle>
+            <CardTitle className="text-lg sm:text-xl">
+              {t("settings.webhook_setting.setupInstructions.title")}
+            </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 text-sm sm:text-base">
             <div>
               <h4 className="font-medium mb-2">
-                1. Configure Webhook in Meta App
+                {t("settings.webhook_setting.setupInstructions.step1.title")}
               </h4>
-              <p className="text-sm text-gray-600">
-                Go to your Meta App Dashboard → WhatsApp → Configuration →
-                Webhook
+              <p>
+                {t(
+                  "settings.webhook_setting.setupInstructions.step1.description"
+                )}
               </p>
             </div>
             <div>
-              <h4 className="font-medium mb-2">2. Set Webhook URL</h4>
-              <p className="text-sm text-gray-600">
-                Copy the webhook URL from above and paste it in the Meta App
-                webhook URL field
+              <h4 className="font-medium mb-2">
+                {t("settings.webhook_setting.setupInstructions.step2.title")}
+              </h4>
+              <p>
+                {t(
+                  "settings.webhook_setting.setupInstructions.step2.description"
+                )}
               </p>
             </div>
             <div>
-              <h4 className="font-medium mb-2">3. Enter Verify Token</h4>
-              <p className="text-sm text-gray-600">
-                Use the verify token shown in your webhook configuration
+              <h4 className="font-medium mb-2">
+                {t("settings.webhook_setting.setupInstructions.step3.title")}
+              </h4>
+              <p>
+                {t(
+                  "settings.webhook_setting.setupInstructions.step3.description"
+                )}
               </p>
             </div>
             <div>
-              <h4 className="font-medium mb-2">4. Subscribe to Events</h4>
-              <p className="text-sm text-gray-600">
-                Subscribe to messages, message_status, and other required
-                webhook fields
+              <h4 className="font-medium mb-2">
+                {t("settings.webhook_setting.setupInstructions.step4.title")}
+              </h4>
+              <p>
+                {t(
+                  "settings.webhook_setting.setupInstructions.step4.description"
+                )}
               </p>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Webhook Dialog */}
       <WebhookDialog
+      channelId={activeChannel?.id}
         open={showWebhookDialog}
         onOpenChange={setShowWebhookDialog}
         editingWebhook={editingWebhook}

@@ -27,30 +27,51 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/contexts/auth-context";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandInput,
+  CommandList,
+  CommandItem,
+  CommandGroup,
+  CommandEmpty,
+} from "@/components/ui/command";
 
 // Types
 interface BrandSettings {
   title?: string;
   tagline?: string;
   logo?: string;
+  logo2?: string;
   favicon?: string;
   updatedAt?: string;
+  country?: string;
+  currency?: string;
+  supportEmail?: string;
 }
 
 // This is only for React state
 interface BrandFormValues {
   title: string;
   tagline: string;
+  country: string;
+  currency: string;
+  supportEmail: string;
   logo: File | null;
+  logo2: File | null;
   favicon: File | null;
 }
-
 
 interface ValidationErrors {
   title?: string;
   tagline?: string;
   logo?: string;
   favicon?: string;
+  supportEmail?: string;
 }
 
 interface GeneralSettingsModalProps {
@@ -66,21 +87,43 @@ const GeneralSettingsModal: React.FC<GeneralSettingsModalProps> = ({
   brandSettings,
   onSuccess,
 }) => {
-  const {user} = useAuth()
+  const { user } = useAuth();
   const [formData, setFormData] = useState<BrandFormValues>({
     title: "",
     tagline: "",
     logo: null,
+    logo2: null,
     favicon: null,
+    currency: "",
+    country: "",
+    supportEmail: "",
   });
   const [logoPreview, setLogoPreview] = useState<string>("");
   const [faviconPreview, setFaviconPreview] = useState<string>("");
   const [errors, setErrors] = useState<ValidationErrors>({});
+  const [logo2Preview, setLogo2Preview] = useState<string>("");
   const [uploadStatus, setUploadStatus] = useState<{
-    logo?: 'uploading' | 'success' | 'error';
-    favicon?: 'uploading' | 'success' | 'error';
+    logo?: "uploading" | "success" | "error";
+    favicon?: "uploading" | "success" | "error";
   }>({});
   const { toast } = useToast();
+
+  const [countryData, setCountryData] = useState([]);
+  const [loadingData, setLoadingData] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/auth/country-data");
+        const data = await res.json();
+        setCountryData(data); // full combined list
+      } catch (error) {
+        console.error("Failed to load country data", error);
+      } finally {
+        setLoadingData(false);
+      }
+    })();
+  }, []);
 
   // Initialize form data when modal opens
   useEffect(() => {
@@ -88,10 +131,15 @@ const GeneralSettingsModal: React.FC<GeneralSettingsModalProps> = ({
       setFormData({
         title: brandSettings.title || "",
         tagline: brandSettings.tagline || "",
-        logo: null,    // no File yet
+        country: brandSettings.country || "",
+        currency: brandSettings.currency || "",
+        supportEmail: brandSettings.supportEmail || "",
+        logo: null, // no File yet
+        logo2: null,
         favicon: null, // no File yet
       });
       setLogoPreview(brandSettings.logo || "");
+      setLogo2Preview(brandSettings.logo2 || "");
       setFaviconPreview(brandSettings.favicon || "");
       setErrors({});
       setUploadStatus({});
@@ -127,9 +175,11 @@ const GeneralSettingsModal: React.FC<GeneralSettingsModalProps> = ({
       });
     },
   });
-  
 
-  const handleInputChange = (field: keyof BrandFormValues, value: string): void => {
+  const handleInputChange = (
+    field: keyof BrandFormValues,
+    value: string
+  ): void => {
     setFormData((prev) => ({
       ...prev,
       [field]: value,
@@ -146,27 +196,29 @@ const GeneralSettingsModal: React.FC<GeneralSettingsModalProps> = ({
 
   const handleFileUpload = (
     file: File | null,
-    type: "logo" | "favicon"
+    type: "logo" | "logo2" | "favicon"
   ): void => {
     if (!file) return;
-  
+
     // Save file in state for sending later
     setFormData((prev) => ({
       ...prev,
       [type]: file,
     }));
-  
+
     // Create preview URL
     const previewUrl = URL.createObjectURL(file);
     if (type === "logo") {
-      setLogoPreview(previewUrl);
-    } else {
-      setFaviconPreview(previewUrl);
-    }
-  
+  setLogoPreview(previewUrl);
+} else if (type === "logo2") {
+  setLogo2Preview(previewUrl); 
+} else {
+  setFaviconPreview(previewUrl);
+}
+
+
     setUploadStatus((prev) => ({ ...prev, [type]: "success" }));
   };
-  
 
   const validateForm = (): boolean => {
     const newErrors: ValidationErrors = {};
@@ -189,14 +241,18 @@ const GeneralSettingsModal: React.FC<GeneralSettingsModalProps> = ({
 
   const handleSubmit = (): void => {
     if (!validateForm()) return;
-  
+
     const formDataToSend = new FormData();
     formDataToSend.append("title", formData.title);
     formDataToSend.append("tagline", formData.tagline);
-  
+    formDataToSend.append("country", formData.country);
+    formDataToSend.append("currency", formData.currency);
+    formDataToSend.append("supportEmail", formData.supportEmail);
+
     if (formData.logo) formDataToSend.append("logo", formData.logo);
-    if (formData.favicon) formDataToSend.append("favicon", formData.favicon);    
-  
+    if (formData.logo2) formDataToSend.append("logo2", formData.logo2);
+    if (formData.favicon) formDataToSend.append("favicon", formData.favicon);
+
     updateBrandMutation.mutate(formDataToSend);
   };
 
@@ -207,28 +263,28 @@ const GeneralSettingsModal: React.FC<GeneralSettingsModalProps> = ({
       title: "",
       tagline: "",
       logo: null,
+      logo2: null,
       favicon: null,
+      currency: "",
+      country: "",
+      supportEmail: ""
     });
     setLogoPreview("");
+    setLogo2Preview("");
     setFaviconPreview("");
     setErrors({});
     setUploadStatus({});
   };
 
-  const removeImage = (type: "logo" | "favicon"): void => {
-    setFormData((prev) => ({
-      ...prev,
-      [type]: "",
-    }));
+  const removeImage = (type: "logo" | "logo2" | "favicon"): void => {
+  setFormData((prev) => ({ ...prev, [type]: null }));
 
-    if (type === "logo") {
-      setLogoPreview("");
-    } else {
-      setFaviconPreview("");
-    }
+  if (type === "logo") setLogoPreview("");
+  else if (type === "logo2") setLogo2Preview("");
+  else setFaviconPreview("");
 
-    setUploadStatus(prev => ({ ...prev, [type]: undefined }));
-  };
+  setUploadStatus((prev) => ({ ...prev, [type]: undefined }));
+};
 
   const handleFileInputChange = (
     e: React.ChangeEvent<HTMLInputElement>,
@@ -241,11 +297,13 @@ const GeneralSettingsModal: React.FC<GeneralSettingsModalProps> = ({
   const getUploadStatusIcon = (type: "logo" | "favicon") => {
     const status = uploadStatus[type];
     switch (status) {
-      case 'uploading':
-        return <div className="animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full" />;
-      case 'success':
+      case "uploading":
+        return (
+          <div className="animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full" />
+        );
+      case "success":
         return <CheckCircle className="w-4 h-4 text-green-500" />;
-      case 'error':
+      case "error":
         return <AlertCircle className="w-4 h-4 text-red-500" />;
       default:
         return null;
@@ -313,10 +371,8 @@ const GeneralSettingsModal: React.FC<GeneralSettingsModalProps> = ({
             <Label className="flex items-center font-medium">
               <ImageIcon className="w-4 h-4 mr-2 text-purple-500" />
               Logo
-              {getUploadStatusIcon('logo') && (
-                <span className="ml-2">
-                  {getUploadStatusIcon('logo')}
-                </span>
+              {getUploadStatusIcon("logo") && (
+                <span className="ml-2">{getUploadStatusIcon("logo")}</span>
               )}
             </Label>
             <Card className="border-dashed border-2">
@@ -369,15 +425,66 @@ const GeneralSettingsModal: React.FC<GeneralSettingsModalProps> = ({
             )}
           </div>
 
+
+          {/* Secondary Logo Upload */}
+<div className="space-y-2">
+  <Label className="flex items-center font-medium">
+    <ImageIcon className="w-4 h-4 mr-2 text-pink-500" />
+    Secondary Logo
+    {getUploadStatusIcon("logo2") && (
+      <span className="ml-2">{getUploadStatusIcon("logo2")}</span>
+    )}
+  </Label>
+  <Card className="border-dashed border-2">
+    <CardContent className="p-4">
+      {logo2Preview ? (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <img
+              src={logo2Preview}
+              alt="Secondary logo preview"
+              className="w-12 h-12 object-contain rounded border"
+            />
+            <span className="text-sm text-gray-600">
+              Secondary logo uploaded
+            </span>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => removeImage("logo2")}
+            type="button"
+          >
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
+      ) : (
+        <div className="text-center py-4">
+          <Upload className="w-8 h-8 mx-auto text-gray-400 mb-2" />
+          <p className="text-sm text-gray-600 mb-2">
+            Upload secondary logo
+          </p>
+          <p className="text-xs text-gray-400">PNG, JPG, SVG up to 2MB</p>
+        </div>
+      )}
+      <Input
+        type="file"
+        accept="image/png,image/jpeg,image/jpg,image/svg+xml"
+        onChange={(e) => handleFileInputChange(e, "logo2")}
+        className="mt-2"
+      />
+    </CardContent>
+  </Card>
+</div>
+
+
           {/* Favicon Upload */}
           <div className="space-y-2">
             <Label className="flex items-center font-medium">
               <Globe className="w-4 h-4 mr-2 text-orange-500" />
               Favicon
-              {getUploadStatusIcon('favicon') && (
-                <span className="ml-2">
-                  {getUploadStatusIcon('favicon')}
-                </span>
+              {getUploadStatusIcon("favicon") && (
+                <span className="ml-2">{getUploadStatusIcon("favicon")}</span>
               )}
             </Label>
             <Card className="border-dashed border-2">
@@ -429,6 +536,106 @@ const GeneralSettingsModal: React.FC<GeneralSettingsModalProps> = ({
               </p>
             )}
           </div>
+
+          {/* Country Select */}
+          <div className="space-y-2">
+            <Label className="flex items-center font-medium">
+              <Globe className="w-4 h-4 mr-2 text-blue-500" />
+              Country
+            </Label>
+
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="w-full justify-between">
+                  {formData.country || "Select country"}
+                </Button>
+              </PopoverTrigger>
+
+              <PopoverContent className="p-0 w-full">
+                <Command>
+                  <CommandInput placeholder="Search country..." />
+                  <CommandList>
+                    <CommandEmpty>No country found.</CommandEmpty>
+
+                    <CommandGroup heading="Countries">
+                      {!loadingData &&
+                        countryData.map((item) => (
+                          <CommandItem
+                            key={item.country_code}
+                            onSelect={() => {
+                              handleInputChange("country", item.country_code);
+                              handleInputChange("currency", item.currency_code); // auto set currency
+                            }}
+                          >
+                            {item.country} ({item.country_code})
+                          </CommandItem>
+                        ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          {/* Currency Select */}
+          <div className="space-y-2">
+            <Label className="flex items-center font-medium">
+              <Tag className="w-4 h-4 mr-2 text-amber-500" />
+              Currency
+            </Label>
+
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="w-full justify-between">
+                  {formData.currency || "Select currency"}
+                </Button>
+              </PopoverTrigger>
+
+              <PopoverContent className="p-0 w-full">
+                <Command>
+                  <CommandInput placeholder="Search currency..." />
+                  <CommandList>
+                    <CommandEmpty>No currency found.</CommandEmpty>
+
+                    <CommandGroup heading="Currencies">
+                      {!loadingData &&
+                        countryData.map((item) => (
+                          <CommandItem
+                            key={item.currency_code}
+                            onSelect={() =>
+                              handleInputChange("currency", item.currency_code)
+                            }
+                          >
+                            {item.currency} ({item.currency_code}) {item.symbol}
+                          </CommandItem>
+                        ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+          </div>
+{/* Support Email */}
+          <div className="space-y-2">
+            <Label className="flex items-center font-medium">
+              <Tag className="w-4 h-4 mr-2 text-green-500" />
+              Support Email
+            </Label>
+            <Textarea
+              placeholder="Enter your email"
+              value={formData.supportEmail}
+              onChange={(e) => handleInputChange("supportEmail", e.target.value)}
+              className={`min-h-[80px] ${
+                errors.tagline ? "border-red-500" : ""
+              }`}
+            />
+            {errors.supportEmail && (
+              <p className="text-sm text-red-500 flex items-center">
+                <AlertCircle className="w-4 h-4 mr-1" />
+                {errors.supportEmail}
+              </p>
+            )}
+          </div>
         </div>
 
         <DialogFooter className="gap-2">
@@ -442,7 +649,13 @@ const GeneralSettingsModal: React.FC<GeneralSettingsModalProps> = ({
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={user?.username === 'demouser'? true : updateBrandMutation.isPending || uploadStatus.logo === 'uploading' || uploadStatus.favicon === 'uploading'}
+            disabled={
+              user?.username === "demouser"
+                ? true
+                : updateBrandMutation.isPending ||
+                  uploadStatus.logo === "uploading" ||
+                  uploadStatus.favicon === "uploading"
+            }
             type="button"
           >
             {updateBrandMutation.isPending ? "Saving..." : "Save Changes"}

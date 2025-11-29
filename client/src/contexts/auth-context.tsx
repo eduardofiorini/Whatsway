@@ -2,8 +2,10 @@ import { createContext, useContext, ReactNode } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useLocation } from "wouter";
+import { AppSettings, CountryCurrency, SubscriptionResponse } from "@/types/types";
 
 interface User {
+  createdBy: any;
   id: string;
   username: string;
   email: string;
@@ -13,13 +15,29 @@ interface User {
   permissions: string[];
   avatar?: string;
   createdAt?: string;
+  
+}
+
+interface BrandSettings {
+  title: string;
+  tagline: string;
+  currency: string;
+  country: string;
+  logo: string;
+  favicon: string;
+  updatedAt: string;
 }
 
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  isBrandSettingsLoading: boolean;
+  currency: string; // Direct access to currency
   logout: () => void;
+  currencySymbol: string | undefined;
+  userPlans: any[];  
+  isUserPlansLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -32,7 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryFn: async () => {
       try {
         const response = await fetch("/api/auth/me", {
-          credentials: "include", // Include cookies for authentication
+          credentials: "include",
         });
         if (!response.ok) {
           if (response.status === 401) {
@@ -49,13 +67,63 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     retry: false,
   });
 
+
+const {
+    data: userPlans,
+    isLoading: isUserPlansLoading
+  } = useQuery<SubscriptionResponse>({
+    queryKey: [`api/subscriptions/user/${user?.id}`],
+    queryFn: () =>
+      apiRequest("GET", `api/subscriptions/user/${user?.id}`).then((res) =>
+        res.json()
+      ),
+    enabled: !!user?.id,
+  });
+
+
+  // Brand Settings Query
+  const { data: brandSettings, isLoading: isBrandSettingsLoading } =
+    useQuery<AppSettings>({
+      queryKey: ["/api/brand-settings"],
+      queryFn: async () => {
+        const response = await fetch("/api/brand-settings");
+        if (!response.ok) {
+          throw new Error("Failed to fetch brand settings");
+        }
+        return response.json();
+      },
+      staleTime: 5 * 60 * 1000,
+      retry: 1,
+    });
+
+  const { data: countryCurrency } = useQuery<CountryCurrency[]>({
+    queryKey: ["/api/auth/country-data"],
+    queryFn: async () => {
+      const response = await fetch("/api/auth/country-data");
+      if (!response.ok) {
+        throw new Error("Failed to fetch brand settings");
+      }
+      return response.json();
+    },
+  });
+
+  const getCurrencyByCode = () => {
+    return countryCurrency?.find(
+      (item) => item.currency_code === brandSettings?.currency
+    );
+  };
+
+  const currency = getCurrencyByCode();
+
+  console.log("filterByCurrencyCode", currency);
+
   const logoutMutation = useMutation({
     mutationFn: async () => {
       await apiRequest("POST", "/api/auth/logout");
     },
     onSuccess: () => {
       queryClient.setQueryData(["/api/auth/me"], null);
-      setLocation("/login");
+      setLocation("/");
     },
   });
 
@@ -69,7 +137,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: user || null,
         isLoading,
         isAuthenticated: !!user,
+
+        isBrandSettingsLoading,
+        currency: brandSettings?.currency || "INR",
+        currencySymbol: currency?.symbol,
         logout,
+        userPlans: userPlans || [],
+        isUserPlansLoading,
+
       }}
     >
       {children}

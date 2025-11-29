@@ -1,11 +1,15 @@
-import { Router } from "express";
+import { Request, Response, Router } from "express";
 import { db } from "../db";
 import { users, userActivityLogs } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { validateRequest } from "../middlewares/validateRequest.middleware";
 import { resolveUserPermissions } from "server/utils/role-permissions";
+import country from "../config/country.json"
+import {sendOTPEmail} from "../services/email.service"
+import { otpVerifications } from "@shared/schema";
+
 
 const router = Router();
 
@@ -13,15 +17,13 @@ const router = Router();
 const loginSchema = z.object({
   username: z.string().min(1, "Username is required"),
   password: z.string().min(1, "Password is required"),
+  fcmToken: z.string().nullable().optional()
 });
-
-
-
 
 // Login endpoint
 router.post("/login", validateRequest(loginSchema), async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, password ,fcmToken } = req.body;
 
     // console.log("Login request body:", req.body);
 
@@ -31,6 +33,8 @@ router.post("/login", validateRequest(loginSchema), async (req, res) => {
       .from(users)
       .where(eq(users.username, username));
 
+      console.log(results)
+
     const user = results[0];
 
     if (!user) {
@@ -38,10 +42,17 @@ router.post("/login", validateRequest(loginSchema), async (req, res) => {
       return res.status(401).json({ error: "Invalid username or password" });
     }
 
+    // console.log(user.status, "checkk users statuuuuuu")
+
     // Check if user is active
-    if (user.status !== "active") {
-      return res.status(403).json({ error: "Account is inactive. Please contact administrator." });
-    }
+    if ((user.status || "").trim().toLowerCase() !== "active") {
+  return res.status(403).json({ error: "Account is inactive. Please contact administrator." });
+}
+
+    // Check if email is verified
+if (user.isEmailVerified === false) {
+  return res.status(403).json({ error: "Email not verified. Please verify your email first." });
+}
 
     // Ensure password field exists
     if (!user.password) {
@@ -97,10 +108,20 @@ router.post("/login", validateRequest(loginSchema), async (req, res) => {
       role: user.role,
       permissions: resolveUserPermissions(user.role, user.permissions as any),
       avatar: user.avatar,
+      createdBy: user.createdBy || "",
     };
 
     // Remove password before sending back
     const { password: _, ...userData } = user;
+
+    try{
+    await db
+    .update(users)
+    .set({ fcmToken })
+    .where(eq(users.id, user?.id));
+    }catch(err){
+      console.error("FCM token not update")
+    }
 
     res.json({
       message: "Login successful",
@@ -111,7 +132,6 @@ router.post("/login", validateRequest(loginSchema), async (req, res) => {
     res.status(500).json({ error: "Login failed", message: (error as Error).message });
   }
 });
-
 
 // Logout endpoint
 router.post("/logout", (req, res) => {
@@ -166,10 +186,257 @@ router.get("/me", async (req, res) => {
   res.json(userData);
 });
 
+router.post("/api/me/update-fcm-token", async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).session?.user;
+    const { fcmToken } = req.body;
+    // console.log("Session user:", user);
+      if (!user) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+    if (!fcmToken) {
+      return res.status(400).json({
+        success: false,
+        message: "fcmToken is required",
+      });
+    }
+
+    await db
+      .update(users)
+      .set({ fcmToken })
+      .where(eq(users.id, user?.id));
+
+    return res.json({
+      success: true,
+      message: "FCM token updated successfully",
+    });
+
+  } catch (error) {
+    console.error("FCM TOKEN UPDATE ERROR:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+});
+
 // Check if authenticated (for frontend)
 router.get("/check", (req, res) => {
   const user = (req as any).session?.user;
   res.json({ authenticated: !!user, user });
 });
+
+
+router.get("/country-data", (req, res) => {
+  res.json(country);
+});
+
+
+
+
+// forgot password
+
+router.post("/forgot-password", async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: "Email is required" });
+    }
+
+    // Check if user exists
+    const existingUser = await db
+      .select()
+      .from(users)
+      .where(eq(users.email, email));
+
+    if (!existingUser.length) {
+      return res.status(404).json({ error: "Email not registered" });
+    }
+
+    const userId = existingUser[0].id;
+    const userName = existingUser[0].firstName; // Use DB value
+
+    // Rate limiting: max 3 OTP per 5 min
+    const recentOTPs = await db
+      .select()
+      .from(otpVerifications)
+      .where(
+        and(
+          eq(otpVerifications.userId, userId),
+          sql`${otpVerifications.createdAt} > NOW() - INTERVAL '5 minutes'`
+        )
+      );
+
+    if (recentOTPs.length >= 3) {
+      return res.status(429).json({
+        error: "Too many requests. Try again in 5 minutes.",
+      });
+    }
+
+    // Generate 6-digit OTP
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 min
+
+    // Store OTP in DB
+    await db.insert(otpVerifications).values({
+      userId,
+      otpCode,
+      expiresAt,
+      isUsed: false,
+    });
+
+    // Send OTP via email
+    try {
+      await sendOTPEmail(email, otpCode, userName);
+      console.log(`✉️ OTP sent to ${email}`);
+    } catch (emailError) {
+      console.error("⚠️ Failed to send OTP email:", emailError);
+    }
+
+    res.json({
+      success: true,
+      message: "Verification code sent to your email",
+    });
+  } catch (error: any) {
+    console.error("Forgot password error:", error);
+    res.status(500).json({ error: error.message || "Failed to process request" });
+  }
+});
+
+
+
+
+router.post("/reset-password", async (req, res) => {
+  try {
+    const { email, newPassword } = req.body;
+
+    if (!email || !newPassword) {
+      return res.status(400).json({ error: "Email and new password are required" });
+    }
+
+    // Find user
+    const existingUser = await db
+      .select()
+      .from(users)
+      .where(eq(users.email, email))
+      .limit(1);
+
+    if (!existingUser.length) {
+      return res.status(404).json({ error: "Email not registered" });
+    }
+
+    const userId = existingUser[0].id;
+
+    // Find valid OTP
+    const otpRecord = await db
+      .select()
+      .from(otpVerifications)
+      .where(
+        eq(otpVerifications.userId, userId),
+        eq(otpVerifications.isUsed, false)
+      )
+      .limit(1);
+
+    if (!otpRecord.length) {
+      return res.status(400).json({ error: "Invalid or already used OTP" });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update password
+    await db
+      .update(users)
+      .set({ password: hashedPassword })
+      .where(eq(users.id, userId));
+
+    // Delete the OTP record after successful password reset
+    await db
+      .delete(otpVerifications)
+      .where(eq(otpVerifications.id, otpRecord[0].id));
+
+    res.json({ success: true, message: "Password updated successfully" });
+  } catch (error: any) {
+    console.error("Reset password error:", error);
+    res.status(500).json({ error: error.message || "Failed to reset password" });
+  }
+});
+
+
+
+
+router.post("/verify-otp", async (req, res) => {
+  try {
+    const { email, otpCode } = req.body;
+    console.log("Request body:", req.body);
+
+    if (!email || !otpCode) {
+      return res.status(400).json({ error: "Email and OTP are required" });
+    }
+
+    // Find user
+    const existingUser = await db
+      .select()
+      .from(users)
+      .where(eq(users.email, email))
+      .limit(1);
+
+    console.log("Found user:", existingUser);
+
+    if (!existingUser.length) {
+      return res.status(404).json({ error: "Email not registered" });
+    }
+
+    const userId = existingUser[0].id;
+
+    // Find valid OTP
+    const otpRecord = await db
+      .select()
+      .from(otpVerifications)
+      .where(
+        and(
+          eq(otpVerifications.userId, userId),
+          eq(otpVerifications.otpCode, otpCode.toString()),
+          eq(otpVerifications.isUsed, false),
+          // sql`${otpVerifications.expiresAt} > timezone('UTC', now())`
+
+        )
+      )
+      .limit(1);
+
+    console.log("OTP records found:", otpRecord);
+    if (otpRecord.length) {
+      console.log("OTP expires at:", otpRecord[0].expiresAt);
+      console.log("Current time:", new Date().toISOString());
+    }
+
+    if (!otpRecord.length) {
+      return res.status(400).json({ error: "Invalid or expired OTP" });
+    }
+
+    // OTP valid => mark as used
+    await db
+      .update(otpVerifications)
+      .set({ isUsed: true })
+      .where(eq(otpVerifications.id, otpRecord[0].id));
+
+    res.json({ success: true, message: "OTP verified successfully" });
+  } catch (error: any) {
+    console.error("OTP verification error:", error);
+    res.status(500).json({ error: error.message || "Failed to verify OTP" });
+  }
+});
+
+
+setInterval(async () => {
+  await db.delete(otpVerifications).where(
+    sql`${otpVerifications.expiresAt} < timezone('UTC', now())`
+  );
+}, 60 * 1000); // हर 1 मिनट
+
+
 
 export default router;

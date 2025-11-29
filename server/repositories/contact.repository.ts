@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { eq, desc, and, gte, sql, lt } from "drizzle-orm";
-import { contacts, type Contact, type InsertContact } from "@shared/schema";
+import { contacts, users, type Contact, type InsertContact } from "@shared/schema";
 import { startOfDay, startOfWeek, subWeeks } from "date-fns";
 
 export class ContactRepository {
@@ -8,11 +8,99 @@ export class ContactRepository {
     return await db.select().from(contacts).orderBy(desc(contacts.createdAt));
   }
 
+
+  async getAllwithUsername(): Promise<(Contact & { createdByName: string })[]> {
+  return await db
+    .select({
+      id: contacts.id,
+      channelId: contacts.channelId,
+      name: contacts.name,
+      phone: contacts.phone,
+      email: contacts.email,
+      groups: contacts.groups,
+      tags: contacts.tags,
+      status: contacts.status,
+      source: contacts.source,
+      lastContact: contacts.lastContact,
+      createdAt: contacts.createdAt,
+      updatedAt: contacts.updatedAt,
+      createdBy: contacts.createdBy,
+
+      // 👇 Full name of the creator
+      createdByName: sql<string>`
+        CONCAT(
+          COALESCE(${users.firstName}, ''), ' ', COALESCE(${users.lastName}, '')
+        )
+      `.as("createdByName"),
+    })
+    .from(contacts)
+    .leftJoin(users, eq(users.id, contacts.createdBy))
+    .orderBy(desc(contacts.createdAt));
+}
+
   async getByChannel(channelId: string): Promise<Contact[]> {
     return await db
       .select()
       .from(contacts)
       .where(eq(contacts.channelId, channelId))
+      .orderBy(desc(contacts.createdAt));
+  }
+
+  async getContactsByUserId(
+  userId: string,
+  page: number = 1,
+  limit: number = 10
+): Promise<{ data: Contact[]; total: number; totalPages: number; page: number; limit: number }> {
+  const offset = (page - 1) * limit;
+
+  // Get total count for pagination
+  const totalResult = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(contacts)
+    .where(eq(contacts.createdBy, userId));
+  const total = totalResult[0]?.count ?? 0;
+
+  // Fetch paginated data
+  const data = await db
+    .select()
+    .from(contacts)
+    .where(eq(contacts.createdBy, userId))
+    .orderBy(desc(contacts.createdAt))
+    .limit(limit)
+    .offset(offset);
+
+  const totalPages = Math.ceil(total / limit);
+
+  return {
+    data,
+    total,
+    totalPages,
+    page,
+    limit,
+  };
+}
+
+
+    
+  async getContactsByTenant(tenantId: string): Promise<Contact[]> {
+    return await db
+      .select()
+      .from(contacts)
+      .where(eq(contacts.tenantId, tenantId))
+      .orderBy(desc(contacts.createdAt));
+  }
+  async getContactByEmail(email: string): Promise<Contact[]> {
+    return await db
+      .select()
+      .from(contacts)
+      .where(eq(contacts.email, email))
+      .orderBy(desc(contacts.createdAt));
+  }
+  async getContactByPhone(phone: string): Promise<Contact[]> {
+    return await db
+      .select()
+      .from(contacts)
+      .where(eq(contacts.phone, phone))
       .orderBy(desc(contacts.createdAt));
   }
 
@@ -84,13 +172,28 @@ export class ContactRepository {
     return contact || undefined;
   }
 
-  async create(insertContact: InsertContact): Promise<Contact> {
-    const [contact] = await db
-      .insert(contacts)
-      .values(insertContact)
-      .returning();
-    return contact;
+  // async create(insertContact: InsertContact): Promise<Contact> {
+  //   const [contact] = await db
+  //     .insert(contacts)
+  //     .values(insertContact)
+  //     .returning();
+  //   return contact;
+  // }
+
+
+  async create(insertContact: InsertContact & { channelId?: string }): Promise<Contact> {
+  // Validation: channelId required
+  if (!insertContact.channelId) {
+    throw new Error("Cannot create contact without a channel. Please create a channel first.");
   }
+
+  const [contact] = await db
+    .insert(contacts)
+    .values(insertContact)
+    .returning();
+  return contact;
+}
+
 
   async update(
     id: string,

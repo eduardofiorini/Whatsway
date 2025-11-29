@@ -10,33 +10,91 @@ export const api = {
     return apiRequest("GET", `/api/analytics${params.toString() ? `?${params.toString()}` : ""}`);
   },
 
-  getContacts: (search?: string, channelId?: string, page?: number, limit?: number, groupFilter?: string, statusFilter?: string) => {
-    const params = new URLSearchParams();
+  // getContacts: (search?: string, channelId?: string, page?: number, limit?: number, groupFilter?: string, statusFilter?: string) => {
+  //   const params = new URLSearchParams();
     
-    if (search && search.trim()) {
-      params.append('search', search.trim());
-    }
-    if (channelId) {
-      params.append('channelId', channelId);
-    }
-    if (page) {
-      params.append('page', page.toString());
-    }
-    if (limit) {
-      params.append('limit', limit.toString());
-    }
-    if (groupFilter) {
-      params.append('group', groupFilter);
-    }
-    if (statusFilter) {
-      params.append('status', statusFilter);
-    }
+  //   if (search && search.trim()) {
+  //     params.append('search', search.trim());
+  //   }
+  //   if (channelId) {
+  //     params.append('channelId', channelId);
+  //   }
+  //   if (page) {
+  //     params.append('page', page.toString());
+  //   }
+  //   if (limit) {
+  //     params.append('limit', limit.toString());
+  //   }
+  //   if (groupFilter) {
+  //     params.append('group', groupFilter);
+  //   }
+  //   if (statusFilter) {
+  //     params.append('status', statusFilter);
+  //   }
     
-    const queryString = params.toString();
+  //   const queryString = params.toString();
 
-    // console.log(`Fetching contacts with query:===>> /api/contacts${queryString ? `?${queryString}` : ""}`);
-    return apiRequest("GET", `/api/contacts${queryString ? `?${queryString}` : ""}`);
-  },
+  //   // console.log(`Fetching contacts with query:===>> /api/contacts${queryString ? `?${queryString}` : ""}`);
+  //   return apiRequest("GET", `/api/contacts${queryString ? `?${queryString}` : ""}`);
+  // },
+
+
+  getContacts: (
+  search: string | undefined,
+  channelId: string | undefined,
+  page: number,
+  limit: number,
+  groupFilter: string | undefined,
+  statusFilter: string | undefined,
+  createdBy: string        // ✅ required now
+) => {
+  const params = new URLSearchParams();
+
+  if (search?.trim()) params.append("search", search.trim());
+  if (channelId) params.append("channelId", channelId);
+  if (page) params.append("page", page.toString());
+  if (limit) params.append("limit", limit.toString());
+  if (groupFilter) params.append("group", groupFilter);
+  if (statusFilter) params.append("status", statusFilter);
+
+  // ✅ ALWAYS send createdBy
+  params.append("createdBy", createdBy);
+
+  const queryString = params.toString();
+
+  return apiRequest(
+    "GET",
+    `/api/contacts${queryString ? `?${queryString}` : ""}`
+  );
+},
+
+
+getAllContacts: (
+  search?: string,
+  page?: number,
+  limit?: number,
+  groupFilter?: string,
+  statusFilter?: string,
+) => {
+  const params = new URLSearchParams();
+
+  if (search?.trim()) params.append("search", search.trim());
+  if (page) params.append("page", String(page));
+  if (limit) params.append("limit", String(limit));
+  if (groupFilter) params.append("group", groupFilter);
+  if (statusFilter) params.append("status", statusFilter);
+
+  // 🟦 SUPERADMIN → DO NOT SEND createdBy or channelId (ever)
+
+  const query = params.toString();
+
+  return apiRequest(
+    "GET",
+    `/api/contacts${query ? `?${query}` : ""}`
+  );
+},
+
+
   getContact: (id: string) => apiRequest("GET", `/api/contacts/${id}`),
   createContact: (data: any, channelId?: string) => apiRequest("POST", `/api/contacts${channelId ? `?channelId=${channelId}` : ""}`, data),
   updateContact: (id: string, data: any) => apiRequest("PUT", `/api/contacts/${id}`, data),
@@ -72,4 +130,23 @@ export const api = {
   createAutomation: (data: any, channelId?: string) => apiRequest("POST", `/api/automations${channelId ? `?channelId=${channelId}` : ""}`, data),
   updateAutomation: (id: string, data: any) => apiRequest("PUT", `/api/automations/${id}`, data),
   deleteAutomation: (id: string) => apiRequest("DELETE", `/api/automations/${id}`),
+
+  // ====================== CHATBOT CRUD ======================
+  createChatbot: (data: unknown) => apiRequest("POST", "/api/chatbots", data),
+  getAllChatbots: () => apiRequest("GET", "/api/chatbots"),
+  getChatbot: (id: any) => apiRequest("GET", `/api/chatbots/${id}`),
+  updateChatbot: (id: any, data: unknown) => apiRequest("PUT", `/api/chatbots/${id}`, data),
+  deleteChatbot: (id: any) => apiRequest("DELETE", `/api/chatbots/${id}`),
+
+  // ====================== TRAINING DATA ======================
+  addTrainingData: (data: unknown) => apiRequest("POST", "/api/training-data", data),
+  getTrainingData: (chatbotId: any) => apiRequest("GET", `/api/training-data/${chatbotId}`),
+  deleteTrainingData: (id: any) => apiRequest("DELETE", `/api/training-data/${id}`),
+
+  // ====================== CONVERSATIONS ======================
+  // createConversation: (data: unknown) => apiRequest("POST", "/api/conversations", data),
+  sendMessage: (data: unknown) => apiRequest("POST", "/api/messages", data),
+  getConversationMessages: (conversationId: any) =>
+    apiRequest("GET", `/api/conversations/${conversationId}/messages`),
+
 };

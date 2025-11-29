@@ -1,24 +1,106 @@
 import type { Request, Response } from 'express';
 import { storage } from '../storage';
-import { insertChannelSchema } from '@shared/schema';
+import { insertChannelSchema, Channel } from '@shared/schema';
 import { AppError, asyncHandler } from '../middlewares/error.middleware';
 import type { RequestWithChannel } from '../middlewares/channel.middleware';
 
-export const getChannels = asyncHandler(async (req: Request, res: Response) => {
+export const getAllChannels = asyncHandler(async (req: Request, res: Response) => {
   const channels = await storage.getChannels();
   res.json(channels);
 });
 
+
+export const getChannels = asyncHandler(async (req: Request, res: Response) => {
+  // @ts-ignore: custom property added by auth middleware
+  const user = (req.session as any).user;
+
+  if (!user) {
+    return res.status(401).json({ message: 'Not authenticated' });
+  }
+
+  let channels: Channel[] = [];
+
+  if (user.role === 'superadmin') {
+    // Superadmin sees all channels
+    channels = await storage.getChannels();
+  } else {
+    // Admin (or other roles) sees only their own channels
+    channels = await storage.getChannelsByUser(user.id);
+  }
+
+  // console.log("CHECK CHANNELS:", channels);
+  res.json(channels);
+});
+
+
+export const getChannelsByUserId = asyncHandler(async (req: Request, res: Response) => {
+  const { userId, page = 1, limit = 10 } = req.body;
+
+  if (!userId) {
+    return res.status(400).json({ message: "userId is required" });
+  }
+
+  try {
+    // Fetch paginated channels
+    const channels = await storage.getChannelsByUser(userId, Number(page), Number(limit));
+
+    return res.json({
+      status: "success",
+      data: channels.data,
+      pagination: channels.pagination,
+    });
+  } catch (error) {
+    console.error("Error fetching channels:", error);
+    return res.status(500).json({ message: "Server error while fetching channels" });
+  }
+});
+
+
+
+// export const getActiveChannel = asyncHandler(async (req: Request, res: Response) => {
+//   const userId =  req.user.id ; 
+
+//   if(!userId){
+//     throw new AppError(404, 'No active channel found');
+//   }
+  
+//   const channel = await storage.getActiveChannelByUserId(userId);
+//   if (!channel) {
+//     throw new AppError(404, 'No active channel found');
+//   }
+//   res.json(channel);
+// });
+
+
 export const getActiveChannel = asyncHandler(async (req: Request, res: Response) => {
-  const channel = await storage.getActiveChannel();
+  const user = req.user;
+
+  if (!user) {
+    throw new AppError(401, 'User not found');
+  }
+
+  // 🟩 Team member? use parent user (createdBy)
+  const userId = user.role === "team" ? user.createdBy : user.id;
+
+  if (!userId) {
+    throw new AppError(404, 'No active channel found');
+  }
+
+  const channel = await storage.getActiveChannelByUserId(userId);
+
   if (!channel) {
     throw new AppError(404, 'No active channel found');
   }
+
   res.json(channel);
 });
 
+
 export const createChannel = asyncHandler(async (req: Request, res: Response) => {
   const validatedChannel = insertChannelSchema.parse(req.body);
+  // 2️⃣ Add creator info 
+  const createdBy = (req.session as any).user.id || 'unknown';
+  validatedChannel.createdBy = createdBy;
   
   // If this is set as active, deactivate all other channels
   if (validatedChannel.isActive) {
@@ -97,10 +179,15 @@ export const createChannel = asyncHandler(async (req: Request, res: Response) =>
 
 export const updateChannel = asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params;
+  const userId =  req.user.id ; 
+
+  if(!userId){
+    throw new AppError(404, 'No active channel found');
+  }
   
   // If setting this channel as active, deactivate all others
   if (req.body.isActive === true) {
-    const channels = await storage.getChannels();
+    const channels = await storage.getChannelsByUserId(userId);
     for (const channel of channels) {
       if (channel.id !== id && channel.isActive) {
         await storage.updateChannel(channel.id, { isActive: false });

@@ -12,35 +12,41 @@ import { WebhookConfigRepository } from "./repositories/webhook-config.repositor
 import { MessageQueueRepository } from "./repositories/message-queue.repository";
 import { ApiLogRepository } from "./repositories/api-log.repository";
 import { WhatsappChannelRepository } from "./repositories/whatsapp-channel.repository";
+import {getActivePaidUsersCount} from "./controllers/subscriptions.controller";
 
-import type {
-  User,
-  InsertUser,
-  Contact,
-  InsertContact,
-  Campaign,
-  InsertCampaign,
-  Channel,
-  InsertChannel,
-  Template,
-  InsertTemplate,
-  Conversation,
-  InsertConversation,
-  Message,
-  InsertMessage,
-  Automation,
-  InsertAutomation,
-  Analytics,
-  InsertAnalytics,
-  WhatsappChannel,
-  InsertWhatsappChannel,
-  WebhookConfig,
-  InsertWebhookConfig,
-  MessageQueue,
-  InsertMessageQueue,
-  ApiLog,
-  InsertApiLog,
+import {
+  type User,
+  type InsertUser,
+  type Contact,
+  type InsertContact,
+  type Campaign,
+  type InsertCampaign,
+  type Channel,
+  type InsertChannel,
+  type Template,
+  type InsertTemplate,
+  type Conversation,
+  type InsertConversation,
+  type Message,
+  type InsertMessage,
+  type Automation,
+  type InsertAutomation,
+  type Analytics,
+  type InsertAnalytics,
+  type WhatsappChannel,
+  type InsertWhatsappChannel,
+  type WebhookConfig,
+  type InsertWebhookConfig,
+  type MessageQueue,
+  type InsertMessageQueue,
+  type ApiLog,
+  type InsertApiLog,
+  type Site,
+  type InsertSite,
+  sites,
 } from "@shared/schema";
+import { db } from "./db";
+import { desc, eq } from "drizzle-orm";
 
 export class DatabaseStorage implements IStorage {
   private userRepo = new UserRepository();
@@ -56,6 +62,45 @@ export class DatabaseStorage implements IStorage {
   private messageQueueRepo = new MessageQueueRepository();
   private apiLogRepo = new ApiLogRepository();
   private whatsappChannelRepo = new WhatsappChannelRepository();
+
+
+  
+
+  // Sites
+  
+  async getSite(id: string): Promise<Site | undefined> {
+    console.log("check IDDDDDDDDDDDd", id);
+    const [site] = await db.select().from(sites).where(eq(sites.id, id));
+    console.log("check siteeeeeeeeee", site);
+    return site || undefined;
+  }
+
+  async getSites(): Promise<Site | undefined> {
+  const [site] = await db
+    .select()
+    .from(sites)
+
+  return site || [];
+}
+
+  async getSitesByChannel(channelId: string): Promise<Site[]> {
+    return await db.select().from(sites).where(eq(sites.channelId, channelId));
+  }
+
+  async createSite(insertSite: InsertSite): Promise<Site> {
+    // Generate a unique widget code
+    const widgetCode = `wc_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    const [site] = await db
+      .insert(sites)
+      .values({ ...insertSite, widgetCode })
+      .returning();
+    return site;
+  }
+
+  async updateSite(id: string, data: Partial<InsertSite>): Promise<Site> {
+    const [site] = await db.update(sites).set(data).where(eq(sites.id, id)).returning();
+    return site;
+  }
 
 
   // Returns statistics of message queue
@@ -121,8 +166,35 @@ async logApiRequest(log: InsertApiLog): Promise<ApiLog | null> {
     return this.contactRepo.getAll();
   }
 
+ 
+async getContactsByUser(
+  userId: string,
+  page: number = 1,
+  limit: number = 10
+): Promise<{
+  data: Contact[];
+  total: number;
+  totalPages: number;
+  page: number;
+  limit: number;
+}> {
+  return this.contactRepo.getContactsByUserId(userId, page, limit);
+}
+
+
+
   async getContactsByChannel(channelId: string): Promise<Contact[]> {
     return this.contactRepo.getByChannel(channelId);
+  }
+
+  async getContactsByTenant(tenantId: string): Promise<Contact[]> {
+    return this.contactRepo.getContactsByTenant(tenantId);
+  }
+  async getContactByEmail(email: string): Promise<Contact[]> {
+    return this.contactRepo.getContactByEmail(email);
+  }
+  async getContactsByPhone(phone: string): Promise<Contact[]> {
+    return this.contactRepo.getContactByPhone(phone);
   }
   async searchContactsByChannel(channelId: string): Promise<Contact[]> {
     return this.contactRepo.getByChannel(channelId);
@@ -137,9 +209,19 @@ async logApiRequest(log: InsertApiLog): Promise<ApiLog | null> {
     return this.contactRepo.getByPhone(phone);
   }
 
-  async createContact(insertContact: InsertContact): Promise<Contact> {
-    return this.contactRepo.create(insertContact);
+  // async createContact(insertContact: InsertContact): Promise<Contact> {
+  //   return this.contactRepo.create(insertContact);
+  // }
+
+
+  async createContact(insertContact: InsertContact & { channelId?: string }): Promise<Contact> {
+  if (!insertContact.channelId) {
+    throw new Error("Cannot create contact without a channel. Please create a channel first.");
   }
+
+  return this.contactRepo.create(insertContact);
+}
+
 
   async updateContact(
     id: string,
@@ -170,19 +252,37 @@ async logApiRequest(log: InsertApiLog): Promise<ApiLog | null> {
   }
 
   // Campaigns
-  async getCampaigns(): Promise<Campaign[]> {
-    return this.campaignRepo.getAll();
-  }
+  async getCampaigns(
+  page: number = 1,
+  limit: number = 10
+): Promise<{
+  data: Campaign[];
+  total: number;
+  page: number;
+  limit: number;
+}> {
+  return this.campaignRepo.getAll(page, limit);
+}
 
-  async getCampaignsByChannel(channelId: string): Promise<Campaign[]> {
-    return this.campaignRepo.getByChannel(channelId);
-  }
+
+ async getCampaignsByChannel(
+  channelId: string,
+  page: number = 1,
+  limit: number = 10
+) {
+  return this.campaignRepo.getByChannel(channelId, page, limit);
+}
+
 
   async getCampaign(id: string): Promise<Campaign | undefined> {
     return this.campaignRepo.getById(id);
   }
 
-  async createCampaign(insertCampaign: InsertCampaign): Promise<Campaign> {
+  async getCampaignByUserId(userId: string, page: number = 1, limit: number = 10): Promise<Campaign | undefined> {
+    return this.campaignRepo.getCampaignByUserId(userId, page, limit);
+  }
+
+  async createCampaign(insertCampaign: InsertCampaign & { createdBy: string }): Promise<Campaign> {
     return this.campaignRepo.create(insertCampaign);
   }
 
@@ -205,6 +305,30 @@ async logApiRequest(log: InsertApiLog): Promise<ApiLog | null> {
   async getChannel(id: string): Promise<Channel | undefined> {
     return this.channelRepo.getById(id);
   }
+
+  
+async getChannelsByUserId(userId: string): Promise<Channel[]> {
+  return this.channelRepo.getAllByUserId(userId);
+}
+
+
+async getActiveChannelByUserId(userId: string): Promise<Channel | undefined> {
+  return this.channelRepo.getActiveByUserId(userId);
+}
+
+   async getChannelsByUser(
+  userId: string,
+  page: number = 1,
+  limit: number = 10
+): Promise<{
+  data: Channel[];
+  pagination: { page: number; limit: number; total: number; totalPages: number };
+}> {
+  return this.channelRepo.getByUser(userId, page, limit);
+}
+
+
+
 
   async getChannelByPhoneNumberId(
     phoneNumberId: string
@@ -232,13 +356,61 @@ async logApiRequest(log: InsertApiLog): Promise<ApiLog | null> {
   }
 
   // Templates
-  async getTemplates(): Promise<Template[]> {
-    return this.templateRepo.getAll();
+  // async getTemplates(): Promise<Template[]> {
+  //   return this.templateRepo.getAll();
+  // }
+
+  // database-storage.ts
+
+async getTemplates(page = 1, limit = 10): Promise<{
+  data: Template[];
+  pagination: { total: number; totalPages: number; page: number; limit: number };
+}> {
+  const result = await this.templateRepo.getAll(page, limit);
+  return {
+    data: result.data,
+    pagination: result.pagination,
+  };
+}
+
+
+  async getTemplatesByUserId(
+  userId: string,
+  page: number = 1,
+  limit: number = 10
+): Promise<{ data: Template[]; total: number; page: number; limit: number }> {
+  return this.templateRepo.getTemplateByUserID(userId, page, limit);
+}
+
+
+  
+async getTemplatesByChannelAndUser(channelId: string, userId: string): Promise<Template[]> {
+  const channel = await this.getChannel(channelId); 
+  if (!channel || channel.createdBy !== userId) {
+    return [];
   }
 
-  async getTemplatesByChannel(channelId: string): Promise<Template[]> {
+  const allTemplates = await this.templateRepo.getAll();
+  return allTemplates
+    .filter(template => template.channelId === channelId)
+    .sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0));
+}
+
+
+  
+
+  async getTemplatesByChannelOLd(channelId: string): Promise<Template[]> {
     return this.templateRepo.getByChannel(channelId);
   }
+
+  async getTemplatesByChannel(
+  channelId: string,
+  page: number = 1,
+  limit: number = 10
+): Promise<{ data: Template[]; total: number }> {
+  return this.templateRepo.getByChannel(channelId, page, limit);
+}
+
 
   async getTemplatesByName(name: string): Promise<Template[]> {
     const templates = await this.templateRepo.getByName(name);
@@ -252,7 +424,7 @@ async logApiRequest(log: InsertApiLog): Promise<ApiLog | null> {
     return this.templateRepo.getById(id);
   }
 
-  async createTemplate(insertTemplate: InsertTemplate): Promise<Template> {
+  async createTemplate(insertTemplate: InsertTemplate & { createdBy: string }): Promise<Template> {
     return this.templateRepo.create(insertTemplate);
   }
 
@@ -272,8 +444,14 @@ async logApiRequest(log: InsertApiLog): Promise<ApiLog | null> {
     return this.conversationRepo.getAll();
   }
 
+  async getConversationBySessionId(sessionId: string): Promise<Conversation[]> {
+    return this.conversationRepo.getBySessionId(sessionId);
+  }
   async getConversationsByChannel(channelId: string): Promise<Conversation[]> {
     return this.conversationRepo.getByChannel(channelId);
+  }
+  async getConversationsByContact(contactId: string): Promise<Conversation[]> {
+    return this.conversationRepo.getByContact(contactId);
   }
 
   async getConversationsNew(): Promise<Conversation[]> {
@@ -338,6 +516,10 @@ async logApiRequest(log: InsertApiLog): Promise<ApiLog | null> {
     whatsappMessageId: string
   ): Promise<Message | undefined> {
     return this.messageRepo.getByWhatsAppId(whatsappMessageId);
+  }
+
+  async getConversationMessages(conversationId: string): Promise<Message | undefined> {
+    return this.messageRepo.getByConversation(conversationId);
   }
 
   async getMessage(id: string): Promise<Message | undefined> {
@@ -514,12 +696,36 @@ async logApiRequest(log: InsertApiLog): Promise<ApiLog | null> {
     const { totalCount, todayCount, weekCount, lastWeekCount } =
       await this.contactRepo.getContactStats();
     const totalCampaigns = await this.campaignRepo
-      .getAll()
-      .then((c) => c.length);
+      .getAllCampaignCount()
     const totalTemplates = await this.templateRepo
       .getAll()
       .then((t) => t.length);
     const messageStats = await this.messageQueueRepo.getMessageStats();
+
+    const totalUsers = await this.userRepo.getAll().then(users => users.filter(user => user.role === "admin").length);
+
+
+    const totalActiveUsers = ((await this.userRepo.getAll().then(users => users.filter(user => user.role === "admin" && user.status === 'active'))).length)
+
+    const totalBlockedUsers = ((await this.userRepo.getAll().then(users => users.filter(user => user.role === "admin" && user.status === 'blocked'))).length)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); 
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1); 
+
+    const users = await this.userRepo.getAll();
+    const todaySignups = users.filter(user =>
+  user.role === "admin" &&
+  new Date(user.createdAt) >= today &&
+  new Date(user.createdAt) < tomorrow
+).length;
+
+const totalChannels = await this.channelRepo.getAll()
+      .then((c) => c.length);
+
+    const totalPaidUsers = await getActivePaidUsersCount()
+
+
 
     return {
       totalContacts: totalCount,
@@ -528,22 +734,32 @@ async logApiRequest(log: InsertApiLog): Promise<ApiLog | null> {
       lastWeekContacts: lastWeekCount,
       totalCampaigns,
       totalTemplates,
+      totalUsers,
+      totalActiveUsers,
+      totalBlockedUsers,
+      todaySignups,
+      totalChannels,
+      totalPaidUsers,
       ...messageStats,
     };
   }
 
-  async getDashboardStatsByChannel(channelId: string): Promise<any> {
+  async getDashboardStatsByChannel(channelId: string, userId: string): Promise<any> {
     const { totalCount, todayCount, weekCount, lastWeekCount } =
       await this.contactRepo.getContactStats(channelId);
     const totalCampaigns = await this.campaignRepo
       .getByChannel(channelId)
       .then((c) => c.length);
-    const totalTemplates = await this.templateRepo
-      .getByChannel(channelId)
-      .then((t) => t.length);
+
+    const totalTemplates = await this.templateRepo.getByChannel(channelId).then((t) => t.length);
+    const totalTemplatesByUserId = await this.templateRepo.getTemplateByUserID(userId);
     const messageStats = await this.messageQueueRepo.getMessageStatsByChannel(
       channelId
     );
+
+    const totalChannels = await this.channelRepo.getTotalChannelsByUser(userId);
+
+    const totalTeamMembers = await this.userRepo.getTeamUsersCountByCreator(userId)
 
     return {
       totalContacts: Number(totalCount),
@@ -552,6 +768,9 @@ async logApiRequest(log: InsertApiLog): Promise<ApiLog | null> {
       lastWeekContacts: Number(lastWeekCount),
       totalCampaigns,
       totalTemplates,
+      totalChannels,
+      totalTeamMembers,
+      totalTemplatesByUserId:totalTemplatesByUserId.total,
       ...messageStats,
     };
   }
